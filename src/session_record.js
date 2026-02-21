@@ -287,6 +287,11 @@ class SessionRecord {
         });
     }
 
+    getOpenSessions() {
+        return this.getSessions().filter((session) => !this.isClosed(session));
+    }
+
+
     closeSession(session) {
         if (this.isClosed(session)) {
             console.warn("Session already closed", formatSessionLabel(session));

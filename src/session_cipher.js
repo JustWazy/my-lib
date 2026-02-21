@@ -169,22 +169,12 @@ class SessionCipher {
             if (!record) {
                 throw new errors.SessionError("No session record");
             }
-            const result = await this.decryptWithSessions(data, record.getSessions());
-            if (record.isClosed(result.session)) {
-                record.openSession(result.session);
-            }
+            const openSessions = record.getOpenSessions();
+            const result = await this.decryptWithSessions(data, openSessions);
             const remoteIdentityKey = result.session.indexInfo.remoteIdentityKey;
             if (!await this.storage.isTrustedIdentity(this.addr.id, remoteIdentityKey)) {
                 throw new errors.UntrustedIdentityKeyError(this.addr.id, remoteIdentityKey);
             }   
-            if (record.isClosed(result.session)) {
-                // It's possible for this to happen when processing a backlog of messages.
-                // The message was, hopefully, just sent back in a time when this session
-                // was the most current.  Simply make a note of it and continue.  If our
-                // actual open session is for reason invalid, that must be handled via
-                // a full SessionError response.
-                console.warn("Decrypted message with closed session.");
-            }
             await this.storeRecord(record);
             return result.plaintext;
         });
