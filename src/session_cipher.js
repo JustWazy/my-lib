@@ -74,6 +74,7 @@ class SessionCipher {
             if (!session) {
                 throw new errors.SessionError("No open session");
             }
+            session.indexInfo.used = Date.now();
             const remoteIdentityKey = session.indexInfo.remoteIdentityKey;
             if (!await this.storage.isTrustedIdentity(this.addr.id, remoteIdentityKey)) {
                 throw new errors.UntrustedIdentityKeyError(this.addr.id, remoteIdentityKey);
@@ -169,6 +170,9 @@ class SessionCipher {
                 throw new errors.SessionError("No session record");
             }
             const result = await this.decryptWithSessions(data, record.getSessions());
+            if (record.isClosed(result.session)) {
+                record.openSession(result.session);
+            }
             const remoteIdentityKey = result.session.indexInfo.remoteIdentityKey;
             if (!await this.storage.isTrustedIdentity(this.addr.id, remoteIdentityKey)) {
                 throw new errors.UntrustedIdentityKeyError(this.addr.id, remoteIdentityKey);

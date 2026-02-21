@@ -3,6 +3,7 @@
 const BaseKeyType = require('./base_key_type');
 
 const CLOSED_SESSIONS_MAX = 40;
+const OPEN_SESSIONS_MAX = 5;
 const SESSION_RECORD_VERSION = 'v1';
 
 function assertBuffer(value) {
@@ -156,6 +157,16 @@ class SessionEntry {
 
 }
 
+function formatSessionLabel(session) {
+    if (!session || !session.indexInfo) {
+        return '<SessionEntry [invalid]>';
+    }
+    const info = session.indexInfo;
+    const baseKey = info.baseKey ? info.baseKey.toString('base64').slice(0, 16) : 'n/a';
+    const state = info.closed === -1 ? 'open' : `closed=${info.closed}`;
+    return `<SessionEntry [baseKey=${baseKey}…, used=${info.used || 0}, ${state}]>`;
+}
+
 
 const migrations = [{
     version: 'v1',
@@ -245,15 +256,22 @@ class SessionRecord {
     }
 
     getOpenSession() {
+        let latest;
         for (const session of Object.values(this.sessions)) {
-            if (!this.isClosed(session)) {
-                return session;
+            if (this.isClosed(session)) {
+                continue;
+            }
+            if (!latest || (session.indexInfo.used || 0) > (latest.indexInfo.used || 0)) {
+                latest = session;
             }
         }
+        return latest;
     }
 
     setSession(session) {
+        session.indexInfo.used = Date.now();
         this.sessions[session.indexInfo.baseKey.toString('base64')] = session;
+        this.removeExtraOpenSessions(session);
     }
 
     getSessions() {
@@ -267,10 +285,10 @@ class SessionRecord {
 
     closeSession(session) {
         if (this.isClosed(session)) {
-            console.warn("Session already closed", session);
+            console.warn("Session already closed", formatSessionLabel(session));
             return;
         }
-        console.info("Closing session:", session);
+        console.info("Closing session:", formatSessionLabel(session));
         session.indexInfo.closed = Date.now();
     }
 
@@ -278,8 +296,10 @@ class SessionRecord {
         if (!this.isClosed(session)) {
             console.warn("Session already open");
         }
-        console.info("Opening session:", session);
+        console.info("Opening session:", formatSessionLabel(session));
         session.indexInfo.closed = -1;
+        session.indexInfo.used = Date.now();
+        this.removeExtraOpenSessions(session);
     }
 
     isClosed(session) {
@@ -303,6 +323,28 @@ class SessionRecord {
             } else {
                 throw new Error('Corrupt sessions object');
             }
+        }
+    }
+
+    removeExtraOpenSessions(keepOpenSession) {
+        const openSessions = Object.entries(this.sessions)
+            .filter(([, session]) => !this.isClosed(session))
+            .sort((a, b) => {
+                const aUsed = a[1].indexInfo.used || 0;
+                const bUsed = b[1].indexInfo.used || 0;
+                return aUsed === bUsed ? 0 : aUsed < bUsed ? 1 : -1;
+            });
+
+        if (openSessions.length <= OPEN_SESSIONS_MAX) {
+            return;
+        }
+
+        for (let i = OPEN_SESSIONS_MAX; i < openSessions.length; i++) {
+            const [, session] = openSessions[i];
+            if (session === keepOpenSession) {
+                continue;
+            }
+            this.closeSession(session);
         }
     }
 
